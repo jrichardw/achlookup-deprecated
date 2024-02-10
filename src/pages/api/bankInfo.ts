@@ -1,5 +1,6 @@
 // pages/api/bankInfo.ts
 import type { NextApiRequest, NextApiResponse } from "next"
+import Error from "next/error"
 import puppeteer from "puppeteer"
 
 interface BankData {
@@ -11,6 +12,7 @@ interface BankData {
 
 interface ErrorResponse {
 	error: string
+	message: string | null
 }
 
 export default async function handler(
@@ -22,7 +24,7 @@ export default async function handler(
 	if (typeof aba !== "string") {
 		return res
 			.status(400)
-			.json({ error: "ABA routing number must be a string" })
+			.json({ error: "ABA routing number must be a string", message: null })
 	}
 
 	try {
@@ -66,9 +68,11 @@ export default async function handler(
 
 		await browser.close()
 		res.status(200).json(data)
-	} catch (error) {
+	} catch (error: any) {
 		console.error(error)
 		//await browser?.close()
-		res.status(500).json({ error: "Failed to fetch data" })
+		res
+			.status(500)
+			.json({ error: "Failed to fetch data", message: error.message })
 	}
 }
