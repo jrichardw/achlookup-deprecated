@@ -12,46 +12,53 @@ interface BankData {
 
 interface ErrorResponse {
 	error: string
-	message: string | null
 }
 
 export default async function handler(
 	req: NextApiRequest,
 	res: NextApiResponse<BankData | ErrorResponse>
 ) {
+	console.log("Request received")
 	const { aba } = req.query
 
 	if (typeof aba !== "string") {
+		console.log("Invalid ABA routing number format")
 		return res
 			.status(400)
-			.json({ error: "ABA routing number must be a string", message: null })
+			.json({ error: "ABA routing number must be a string" })
 	}
 
+	console.log("initiating puppeteer")
 	let browser = null
 	try {
-		// Use puppeteer-core and chrome-aws-lambda for Vercel compatibility
 		browser = await puppeteer.launch({
 			args: chromium.args,
 			executablePath: await chromium.executablePath,
 			headless: chromium.headless,
 		})
-
 		const page = await browser.newPage()
 		await page.goto(
 			`https://www.frbservices.org/EPaymentsDirectory/achResults.html?bank=&aba=${aba}`,
 			{ waitUntil: "networkidle2" }
 		)
 
+		console.log("Page loaded")
+
 		// Check if the "Agree" button exists
 		const agreeButton = await page.$("#agree_terms_use")
 		if (agreeButton) {
+			console.log("Agree button found, clicking...")
 			await agreeButton.click()
 			// Wait for navigation after clicking the "Agree" button
 			await page.waitForNavigation({ waitUntil: "networkidle0" })
+			console.log("Navigation after agree completed")
+		} else {
+			console.log("No agree button found, proceeding with scraping")
 		}
 
 		// After navigating past the agreement, scrape the table
 		const data: BankData = await page.evaluate(() => {
+			console.log("Evaluating page content for data extraction")
 			const routingNumber = document
 				.querySelector<HTMLElement>("tr#result_row_1 td:nth-child(2)")!
 				.innerText.trim()
@@ -68,13 +75,12 @@ export default async function handler(
 			return { routingNumber, name, city, state }
 		})
 
+		console.log("Data extraction successful", data)
 		await browser.close()
 		res.status(200).json(data)
 	} catch (error: any) {
-		console.error(error)
+		console.error("An error occurred during data extraction", error)
 		if (browser !== null) await browser.close()
-		res
-			.status(500)
-			.json({ error: "Failed to fetch data", message: error.message })
+		res.status(500).json({ error: "Failed to fetch data" })
 	}
 }
