@@ -1,7 +1,7 @@
 // pages/api/bankInfo.ts
 import type { NextApiRequest, NextApiResponse } from "next"
-import Error from "next/error"
-import puppeteer from "puppeteer"
+import chromium from "chrome-aws-lambda"
+import puppeteer from "puppeteer-core"
 
 interface BankData {
 	routingNumber: string
@@ -27,29 +27,31 @@ export default async function handler(
 			.json({ error: "ABA routing number must be a string", message: null })
 	}
 
+	let browser = null
 	try {
-		const browser = await puppeteer.launch()
+		// Use puppeteer-core and chrome-aws-lambda for Vercel compatibility
+		browser = await puppeteer.launch({
+			args: chromium.args,
+			executablePath: await chromium.executablePath,
+			headless: chromium.headless,
+		})
+
 		const page = await browser.newPage()
 		await page.goto(
 			`https://www.frbservices.org/EPaymentsDirectory/achResults.html?bank=&aba=${aba}`,
 			{ waitUntil: "networkidle2" }
 		)
 
-		console.log("Page loaded")
-
 		// Check if the "Agree" button exists
 		const agreeButton = await page.$("#agree_terms_use")
 		if (agreeButton) {
 			await agreeButton.click()
-			console.log("Clicked agree")
 			// Wait for navigation after clicking the "Agree" button
-			await page.waitForNavigation()
-			console.log("Navigated")
+			await page.waitForNavigation({ waitUntil: "networkidle0" })
 		}
 
 		// After navigating past the agreement, scrape the table
 		const data: BankData = await page.evaluate(() => {
-			console.log("Evaluating")
 			const routingNumber = document
 				.querySelector<HTMLElement>("tr#result_row_1 td:nth-child(2)")!
 				.innerText.trim()
@@ -70,7 +72,7 @@ export default async function handler(
 		res.status(200).json(data)
 	} catch (error: any) {
 		console.error(error)
-		//await browser?.close()
+		if (browser !== null) await browser.close()
 		res
 			.status(500)
 			.json({ error: "Failed to fetch data", message: error.message })
